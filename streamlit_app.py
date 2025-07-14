@@ -13,27 +13,10 @@ st.markdown("Estimate log-transformed house prices using the XGBoost model train
 # Sidebar - User input
 st.sidebar.header("📥 Enter Property Features")
 
-# Dropdowns for city and location (replace with encoded values if needed)
-cities = {
-    "Lahore": 24.06,
-    "Karachi": 22.55,
-    "Islamabad": 26.33,
-    "Peshawar": 20.78
-}
-locations = {
-    "DHA": 55.1,
-    "Gulshan": 40.5,
-    "Bahria Town": 60.7,
-    "F-11": 70.3
-}
-
-city_name = st.sidebar.selectbox("City", list(cities.keys()))
-location_name = st.sidebar.selectbox("Location", list(locations.keys()))
-location_city_te = cities[city_name]
-location_te = locations[location_name]
-
-type_house = st.sidebar.selectbox("Property Type", ["House", "Flat", "Commercial Plot", "Residential Plot", "Shop", "Building"])
 province = st.sidebar.selectbox("Province", ["Punjab", "Sindh", "Khyber Pakhtunkhwa", "Islamabad Capital"])
+location_city_name = st.sidebar.selectbox("City", ["Lahore", "Karachi", "Islamabad", "Peshawar", "Multan"])
+location_name = st.sidebar.selectbox("Location", ["DHA", "Gulshan", "Bahria Town", "Model Town", "F-10"])
+type_house = st.sidebar.selectbox("Property Type", ["House", "Flat", "Commercial Plot", "Residential Plot", "Shop", "Building"])
 bedroom = st.sidebar.slider("Bedrooms", 0, 10, 3)
 bath = st.sidebar.slider("Bathrooms", 0, 10, 2)
 area_sqft = st.sidebar.number_input("Area (sqft)", min_value=50.0, max_value=20000.0, value=1200.0)
@@ -46,12 +29,19 @@ type_encoded = [1.0 if type_house == t else 0.0 for t in types]
 provinces = ["Islamabad Capital", "Khyber Pakhtunkhwa", "Punjab", "Sindh"]
 province_encoded = [1.0 if province == p else 0.0 for p in provinces]
 
+# Sample target encoding values for city and location
+city_te_values = {"Lahore": 24.1, "Karachi": 22.3, "Islamabad": 26.5, "Peshawar": 18.7, "Multan": 16.9}
+location_te_values = {"DHA": 68.2, "Gulshan": 54.3, "Bahria Town": 61.4, "Model Town": 47.9, "F-10": 73.1}
+
+location_city_te = city_te_values[location_city_name]
+location_te = location_te_values[location_name]
+
 # Compute additional features
 log_area = np.log1p(area_sqft)
 log_area_price_ratio = 0  # Optional: let model learn from actual features
 log_price_per_sqft = 0    # Placeholder; the model already learned from final engineered features
 
-# Combine features (excluding days_since_posted)
+# Combine features
 features = [
     location_city_te,
     location_te,
