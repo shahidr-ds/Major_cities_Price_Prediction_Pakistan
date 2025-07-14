@@ -20,29 +20,31 @@ st.markdown("Estimate log-transformed house prices using the XGBoost model train
 # ----------------------------
 st.sidebar.header("📥 Enter Property Features")
 
-# Dropdown for Province
-province = st.sidebar.selectbox("Province", ["Punjab", "Sindh", "Khyber Pakhtunkhwa", "Islamabad Capital"])
+# Grouped cities by province
+province_city_map = {
+    "Punjab": ["Lahore", "Rawalpindi", "Faisalabad", "Multan", "Sialkot"],
+    "Sindh": ["Karachi", "Hyderabad"],
+    "Khyber Pakhtunkhwa": ["Peshawar"],
+    "Islamabad Capital": ["Islamabad"]
+}
 
-# Dropdown for City
-city = st.sidebar.selectbox("City", [
-    "Lahore", "Karachi", "Islamabad", "Rawalpindi", "Peshawar",
-    "Faisalabad", "Multan", "Hyderabad", "Quetta", "Sialkot"
-])
+# Province and dynamic city dropdown
+province = st.sidebar.selectbox("Province", list(province_city_map.keys()))
+city = st.sidebar.selectbox("City", province_city_map[province])
 
-# Dropdown for Property Type
+# Property Type
 property_type = st.sidebar.selectbox("Property Type", [
     "House", "Flat", "Commercial Plot", "Residential Plot", "Shop", "Building"
 ])
 
-# Numerical Inputs
+# Numeric Inputs
 bedroom = st.sidebar.slider("Bedrooms", 0, 10, 3)
 bath = st.sidebar.slider("Bathrooms", 0, 10, 2)
 area_sqft = st.sidebar.number_input("Area (sqft)", min_value=50.0, max_value=20000.0, value=1200.0)
 
 # ----------------------------
-# Feature Engineering / Encoding
+# Feature Engineering
 # ----------------------------
-
 # Dummy encoding: Property Type
 type_list = ["Building", "Commercial Plot", "Flat", "House", "Residential Plot", "Shop"]
 type_encoded = [1.0 if property_type == t else 0.0 for t in type_list]
@@ -51,32 +53,33 @@ type_encoded = [1.0 if property_type == t else 0.0 for t in type_list]
 province_list = ["Islamabad Capital", "Khyber Pakhtunkhwa", "Punjab", "Sindh"]
 province_encoded = [1.0 if province == p else 0.0 for p in province_list]
 
-# Target encoding values for selected cities (mock values or from your TE dict)
+# Target encoding for city (mock values)
 city_te_map = {
     "Lahore": 25.1, "Karachi": 24.5, "Islamabad": 26.0, "Rawalpindi": 23.7,
     "Peshawar": 22.3, "Faisalabad": 21.9, "Multan": 21.4, "Hyderabad": 20.2,
     "Quetta": 19.5, "Sialkot": 20.0
 }
 location_city_te = city_te_map.get(city, 21.0)
+location_te = 50.0  # constant or average encoding
 
-# Static encoding for 'location_te' (or use mean/median from training)
-location_te = 50.0
-
-# Log-transformed area
+# Log features
 log_area = np.log1p(area_sqft)
 
-# ----------------------------
-# FINAL FEATURE VECTOR (15 Features)
-# ----------------------------
+# Final feature vector
 features = [
-    location_city_te,           # 1
-    location_te,                # 2
-    *type_encoded,              # +6 = 8
-    *province_encoded,          # +4 = 12
-    bedroom,                    # 13
-    bath,                       # 14
-    log_area                    # 15
+    location_city_te,
+    location_te,
+    *type_encoded,         # 6 features
+    *province_encoded,     # 4 features
+    bedroom,
+    bath,
+    area_sqft,
+    log_area
 ]
+
+# Debug info
+st.write("✅ Feature count:", len(features))
+st.code(f"🧪 Features passed to model:\n{features}")
 
 # ----------------------------
 # Predict
@@ -85,12 +88,11 @@ if st.button("🔍 Predict Price"):
     st.markdown("---")
     st.subheader("📊 Prediction Result")
 
-    st.write("✅ Feature count being passed:", len(features))  # Debug check
-
-    # Ensure correct shape & scaling
+    # Transform and predict
     X_input = scaler.transform([features])
     pred_log_price = model.predict(X_input)[0]
     pred_price = np.expm1(pred_log_price)
 
     st.metric("Estimated House Price (PKR in Millions)", f"{pred_price:.2f} M")
     st.caption("🔎 Model trained on log-transformed target using XGBoost")
+    st.write(f"Log price predicted: {pred_log_price:.4f}")
