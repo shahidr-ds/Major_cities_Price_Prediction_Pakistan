@@ -45,41 +45,41 @@ area_sqft = st.sidebar.number_input("Area (sqft)", min_value=50.0, max_value=200
 # ----------------------------
 # Feature Engineering
 # ----------------------------
-# Dummy encoding: Property Type
+# Dummy encoding: Property Type (must match training order)
 type_list = ["Building", "Commercial Plot", "Flat", "House", "Residential Plot", "Shop"]
 type_encoded = [1.0 if property_type == t else 0.0 for t in type_list]
 
-# Dummy encoding: Province
+# Dummy encoding: Province (must match training order)
 province_list = ["Islamabad Capital", "Khyber Pakhtunkhwa", "Punjab", "Sindh"]
 province_encoded = [1.0 if province == p else 0.0 for p in province_list]
 
-# Target encoding for city (mock values)
+# Target encoding for city (from training)
 city_te_map = {
     "Lahore": 25.1, "Karachi": 24.5, "Islamabad": 26.0, "Rawalpindi": 23.7,
     "Peshawar": 22.3, "Faisalabad": 21.9, "Multan": 21.4, "Hyderabad": 20.2,
-    "Quetta": 19.5, "Sialkot": 20.0
+    "Sialkot": 20.0
 }
 location_city_te = city_te_map.get(city, 21.0)
-location_te = 50.0  # constant or average encoding
 
 # Log features
 log_area = np.log1p(area_sqft)
+log_area_price_ratio = log_area / area_sqft
 
-# Final feature vector
+# ✅ Final feature vector — must be exactly 15 features
 features = [
-    location_city_te,
-    location_te,
-    *type_encoded,         # 6 features
-    *province_encoded,     # 4 features
-    bedroom,
-    bath,
-    area_sqft,
-    log_area
+    location_city_te,         # 1
+    *type_encoded,            # 6
+    *province_encoded,        # 4
+    bedroom,                  # 1
+    bath,                     # 1
+    area_sqft,                # 1
+    log_area,                 # 1
+    log_area_price_ratio      # 1
 ]
 
-# Debug info
-st.write("✅ Feature count:", len(features))
-st.code(f"🧪 Features passed to model:\n{features}")
+# Show for debugging
+st.write("✅ Feature count being passed:", len(features))
+st.code(f"{features}")
 
 # ----------------------------
 # Predict
@@ -93,6 +93,6 @@ if st.button("🔍 Predict Price"):
     pred_log_price = model.predict(X_input)[0]
     pred_price = np.expm1(pred_log_price)
 
-    st.metric("Estimated House Price (PKR in Millions)", f"{pred_price:.2f} M")
-    st.caption("🔎 Model trained on log-transformed target using XGBoost")
-    st.write(f"Log price predicted: {pred_log_price:.4f}")
+    st.metric("🏷 Estimated House Price (PKR Millions)", f"{pred_price:.2f} M")
+    st.caption("🔎 Predicted using XGBoost model trained on log-transformed prices")
+    st.write(f"📉 Log Price Estimate: `{pred_log_price:.4f}`")
