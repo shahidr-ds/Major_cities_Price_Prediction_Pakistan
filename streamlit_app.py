@@ -13,35 +13,35 @@ st.markdown("Estimate log-transformed house prices using the XGBoost model train
 # Sidebar - User input
 st.sidebar.header("📥 Enter Property Features")
 
+# 1️⃣ Province selection (first)
 province = st.sidebar.selectbox("Province", ["Punjab", "Sindh", "Khyber Pakhtunkhwa", "Islamabad Capital"])
-location_city_name = st.sidebar.selectbox("City", ["Lahore", "Karachi", "Islamabad", "Peshawar", "Multan"])
-location_name = st.sidebar.selectbox("Location", ["DHA", "Gulshan", "Bahria Town", "Model Town", "F-10"])
-type_house = st.sidebar.selectbox("Property Type", ["House", "Flat", "Commercial Plot", "Residential Plot", "Shop", "Building"])
+
+# 2️⃣ Location inputs
+location_city_te = st.sidebar.slider("City Target Encoding", min_value=0.0, max_value=30.0, value=15.0)
+location_te = st.sidebar.slider("Location Target Encoding", min_value=0.0, max_value=100.0, value=50.0)
+
+# 3️⃣ Property type
+property_type = st.sidebar.selectbox("Property Type", ["House", "Flat", "Commercial Plot", "Residential Plot", "Shop", "Building"])
+
+# 4️⃣ Core features
 bedroom = st.sidebar.slider("Bedrooms", 0, 10, 3)
 bath = st.sidebar.slider("Bathrooms", 0, 10, 2)
 area_sqft = st.sidebar.number_input("Area (sqft)", min_value=50.0, max_value=20000.0, value=1200.0)
 
 # One-hot encodings for property type
 types = ["Building", "Commercial Plot", "Flat", "House", "Residential Plot", "Shop"]
-type_encoded = [1.0 if type_house == t else 0.0 for t in types]
+type_encoded = [1.0 if property_type == t else 0.0 for t in types]
 
 # One-hot encodings for province
 provinces = ["Islamabad Capital", "Khyber Pakhtunkhwa", "Punjab", "Sindh"]
 province_encoded = [1.0 if province == p else 0.0 for p in provinces]
 
-# Sample target encoding values for city and location
-city_te_values = {"Lahore": 24.1, "Karachi": 22.3, "Islamabad": 26.5, "Peshawar": 18.7, "Multan": 16.9}
-location_te_values = {"DHA": 68.2, "Gulshan": 54.3, "Bahria Town": 61.4, "Model Town": 47.9, "F-10": 73.1}
-
-location_city_te = city_te_values[location_city_name]
-location_te = location_te_values[location_name]
-
 # Compute additional features
 log_area = np.log1p(area_sqft)
-log_area_price_ratio = 0  # Optional: let model learn from actual features
-log_price_per_sqft = 0    # Placeholder; the model already learned from final engineered features
+log_area_price_ratio = 0  # Placeholder
+log_price_per_sqft = 0    # Placeholder
 
-# Combine features
+# Combine exactly 15 features
 features = [
     location_city_te,
     location_te,
@@ -54,6 +54,9 @@ features = [
     log_price_per_sqft,
     log_area_price_ratio
 ]
+
+# Debug count
+st.write("✅ Feature count being passed:", len(features))
 
 # Scale and predict
 X_input = scaler.transform([features])
