@@ -86,10 +86,11 @@ log_area_price_ratio = np.log1p(area_sqft / (bedroom + bath + 1))
 days_since_posted = 15.0
 
 # Final feature vector (exact training order)
+bedroom_imputed = bedroom
 features = [
     *type_encoded,
     bath,
-    bedroom,
+    bedroom_imputed,
     area_sqft,
     days_since_posted,
     city_te,
@@ -102,6 +103,19 @@ features = [
 # Debug info
 st.write("✅ Feature count:", len(features))
 st.write("📐 Expected by scaler:", scaler.n_features_in_)
+st.write("🔍 Feature Values:")
+st.json({ 
+    "type_encoded": type_encoded,
+    "bath": bath,
+    "bedroom": bedroom,
+    "area_sqft": area_sqft,
+    "days_since_posted": days_since_posted,
+    "city_te": city_te,
+    "location_te": location_te,
+    "province_encoded": province_encoded,
+    "log_price_per_sqft": log_price_per_sqft,
+    "log_area_price_ratio": log_area_price_ratio
+})
 
 # ----------------------------
 # Predict
@@ -110,11 +124,14 @@ if st.button("🔍 Predict Price"):
     st.markdown("---")
     st.subheader("📊 Prediction Result")
 
-    # Transform and predict
-    X_input = scaler.transform([features])
-    pred_log_price = model.predict(X_input)[0]
-    pred_price = np.expm1(pred_log_price)
+    try:
+        X_input = scaler.transform([features])
+        pred_log_price = model.predict(X_input)[0]
+        pred_price = np.expm1(pred_log_price)
 
-    st.metric("Estimated House Price (PKR in Millions)", f"{pred_price:.2f} M")
-    st.caption("🔎 Model trained on log-transformed target using XGBoost")
-    st.write(f"Log price predicted: {pred_log_price:.4f}")
+        st.metric("Estimated House Price (PKR in Millions)", f"{pred_price:.2f} M")
+        st.caption("🔎 Model trained on log-transformed target using XGBoost")
+        st.write(f"Log price predicted: {pred_log_price:.4f}")
+
+    except ValueError as e:
+        st.error(f"🚫 Prediction failed: {e}")
