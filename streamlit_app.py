@@ -40,8 +40,9 @@ bath = st.sidebar.slider("Bathrooms", 0, 10, 2)
 area_sqft = st.sidebar.number_input("Area (sqft)", min_value=50.0, max_value=20000.0, value=1200.0)
 
 # ----------------------------
-# Feature Encoding / Engineering
+# Feature Engineering / Encoding
 # ----------------------------
+
 # Dummy encoding: Property Type
 type_list = ["Building", "Commercial Plot", "Flat", "House", "Residential Plot", "Shop"]
 type_encoded = [1.0 if property_type == t else 0.0 for t in type_list]
@@ -50,7 +51,7 @@ type_encoded = [1.0 if property_type == t else 0.0 for t in type_list]
 province_list = ["Islamabad Capital", "Khyber Pakhtunkhwa", "Punjab", "Sindh"]
 province_encoded = [1.0 if province == p else 0.0 for p in province_list]
 
-# Target encoding values for selected cities (mock values)
+# Target encoding values for selected cities (mock values or from your TE dict)
 city_te_map = {
     "Lahore": 25.1, "Karachi": 24.5, "Islamabad": 26.0, "Rawalpindi": 23.7,
     "Peshawar": 22.3, "Faisalabad": 21.9, "Multan": 21.4, "Hyderabad": 20.2,
@@ -58,34 +59,35 @@ city_te_map = {
 }
 location_city_te = city_te_map.get(city, 21.0)
 
-# Dummy target encoding value for location (static or average)
+# Static encoding for 'location_te' (or use mean/median from training)
 location_te = 50.0
 
-# Log Features
+# Log-transformed area
 log_area = np.log1p(area_sqft)
-log_price_per_sqft = 0  # Placeholder (optional)
-log_area_price_ratio = 0  # Placeholder (optional)
 
-# Combine all features (15 total)
+# ----------------------------
+# FINAL FEATURE VECTOR (15 Features)
+# ----------------------------
 features = [
-    location_city_te,
-    location_te,
-    *type_encoded,              # 6 features
-    *province_encoded,          # 4 features
-    bedroom,
-    bath,
-    area_sqft,
-    log_area
+    location_city_te,           # 1
+    location_te,                # 2
+    *type_encoded,              # +6 = 8
+    *province_encoded,          # +4 = 12
+    bedroom,                    # 13
+    bath,                       # 14
+    log_area                    # 15
 ]
 
 # ----------------------------
-# Prediction Section
+# Predict
 # ----------------------------
 if st.button("🔍 Predict Price"):
     st.markdown("---")
     st.subheader("📊 Prediction Result")
-    
-    # Ensure correct shape & scale
+
+    st.write("✅ Feature count being passed:", len(features))  # Debug check
+
+    # Ensure correct shape & scaling
     X_input = scaler.transform([features])
     pred_log_price = model.predict(X_input)[0]
     pred_price = np.expm1(pred_log_price)
