@@ -32,6 +32,22 @@ province_city_map = {
 province = st.sidebar.selectbox("Province", list(province_city_map.keys()))
 city = st.sidebar.selectbox("City", province_city_map[province])
 
+# Location (Society) Dropdown and Encoding
+location_map = {
+    "Lahore": {"DHA Lahore": 52.4, "Bahria Town": 48.9, "Johar Town": 46.5},
+    "Karachi": {"DHA Karachi": 51.2, "Gulshan-e-Iqbal": 46.3},
+    "Islamabad": {"DHA Islamabad": 53.1, "G-13": 49.5},
+    "Rawalpindi": {"Bahria Town": 47.8},
+    "Peshawar": {"Hayatabad": 42.0},
+    "Faisalabad": {"Satiana Road": 40.5},
+    "Multan": {"Model Town": 39.0},
+    "Hyderabad": {"Qasimabad": 38.0},
+    "Sialkot": {"Cantt": 37.2}
+}
+location_options = list(location_map.get(city, {"Unknown": 40.0}).keys())
+selected_location = st.sidebar.selectbox("Location / Society", location_options)
+location_te = location_map.get(city, {}).get(selected_location, 40.0)
+
 # Property Type
 property_type = st.sidebar.selectbox("Property Type", [
     "House", "Flat", "Residential Plot", "Shop"
@@ -60,7 +76,6 @@ city_te_map = {
     "Sialkot": 20.0
 }
 city_te = city_te_map.get(city, 21.0)
-location_te = 50.0
 
 # Log price per sqft and ratio
 price_per_sqft = area_sqft / (bedroom + bath + 1)
