@@ -1,0 +1,1 @@
+Property type, Society,	latitude, longitude, Baths, Purpose(Sale/ Rent), Bedrooms, Date Posted, Total area, Distance from Centre of Society, Condition(New, old, Very old), Price
