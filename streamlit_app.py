@@ -13,14 +13,30 @@ st.markdown("Estimate log-transformed house prices using the XGBoost model train
 # Sidebar - User input
 st.sidebar.header("📥 Enter Property Features")
 
-location_city_te = st.sidebar.slider("City TE", min_value=0.0, max_value=30.0, value=15.0)
-location_te = st.sidebar.slider("Location TE", min_value=0.0, max_value=100.0, value=50.0)
+# Dropdowns for city and location (replace with encoded values if needed)
+cities = {
+    "Lahore": 24.06,
+    "Karachi": 22.55,
+    "Islamabad": 26.33,
+    "Peshawar": 20.78
+}
+locations = {
+    "DHA": 55.1,
+    "Gulshan": 40.5,
+    "Bahria Town": 60.7,
+    "F-11": 70.3
+}
+
+city_name = st.sidebar.selectbox("City", list(cities.keys()))
+location_name = st.sidebar.selectbox("Location", list(locations.keys()))
+location_city_te = cities[city_name]
+location_te = locations[location_name]
+
 type_house = st.sidebar.selectbox("Property Type", ["House", "Flat", "Commercial Plot", "Residential Plot", "Shop", "Building"])
 province = st.sidebar.selectbox("Province", ["Punjab", "Sindh", "Khyber Pakhtunkhwa", "Islamabad Capital"])
 bedroom = st.sidebar.slider("Bedrooms", 0, 10, 3)
 bath = st.sidebar.slider("Bathrooms", 0, 10, 2)
 area_sqft = st.sidebar.number_input("Area (sqft)", min_value=50.0, max_value=20000.0, value=1200.0)
-days_since_posted = st.sidebar.slider("Days Since Posted", 0, 365, 30)
 
 # One-hot encodings for property type
 types = ["Building", "Commercial Plot", "Flat", "House", "Residential Plot", "Shop"]
@@ -35,7 +51,7 @@ log_area = np.log1p(area_sqft)
 log_area_price_ratio = 0  # Optional: let model learn from actual features
 log_price_per_sqft = 0    # Placeholder; the model already learned from final engineered features
 
-# Combine features
+# Combine features (excluding days_since_posted)
 features = [
     location_city_te,
     location_te,
@@ -44,7 +60,6 @@ features = [
     bedroom,
     bath,
     area_sqft,
-    days_since_posted,
     log_area,
     log_price_per_sqft,
     log_area_price_ratio
