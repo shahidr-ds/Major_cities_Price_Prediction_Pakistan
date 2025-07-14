@@ -34,7 +34,7 @@ city = st.sidebar.selectbox("City", province_city_map[province])
 
 # Property Type
 property_type = st.sidebar.selectbox("Property Type", [
-    "House", "Flat", "Commercial Plot", "Residential Plot", "Shop", "Building"
+    "House", "Flat", "Residential Plot", "Shop"
 ])
 
 # Numeric Inputs
@@ -43,43 +43,50 @@ bath = st.sidebar.slider("Bathrooms", 0, 10, 2)
 area_sqft = st.sidebar.number_input("Area (sqft)", min_value=50.0, max_value=20000.0, value=1200.0)
 
 # ----------------------------
-# Feature Engineering
+# Feature Engineering (15 total)
 # ----------------------------
-# Dummy encoding: Property Type (must match training order)
-type_list = ["Building", "Commercial Plot", "Flat", "House", "Residential Plot", "Shop"]
-type_encoded = [1.0 if property_type == t else 0.0 for t in type_list]
+# Property type dummies (4 used)
+property_types = ["House", "Flat", "Shop", "Residential Plot"]
+type_encoded = [1.0 if property_type == t else 0.0 for t in property_types]
 
-# Dummy encoding: Province (must match training order)
-province_list = ["Islamabad Capital", "Khyber Pakhtunkhwa", "Punjab", "Sindh"]
-province_encoded = [1.0 if province == p else 0.0 for p in province_list]
+# Province dummies (Punjab, Sindh, KP)
+province_dummies = ["Punjab", "Sindh", "Khyber Pakhtunkhwa"]
+province_encoded = [1.0 if province == p else 0.0 for p in province_dummies]
 
-# Target encoding for city (from training)
+# Target Encodings
 city_te_map = {
     "Lahore": 25.1, "Karachi": 24.5, "Islamabad": 26.0, "Rawalpindi": 23.7,
     "Peshawar": 22.3, "Faisalabad": 21.9, "Multan": 21.4, "Hyderabad": 20.2,
     "Sialkot": 20.0
 }
-location_city_te = city_te_map.get(city, 21.0)
+city_te = city_te_map.get(city, 21.0)
+location_te = 50.0
 
-# Log features
-log_area = np.log1p(area_sqft)
-log_area_price_ratio = log_area / area_sqft
+# Log price per sqft and ratio
+price_per_sqft = area_sqft / (bedroom + bath + 1)
+log_price_per_sqft = np.log1p(price_per_sqft)
+log_area_price_ratio = np.log1p(area_sqft / (bedroom + bath + 1))
 
-# ✅ Final feature vector — must be exactly 15 features
+# Mock days since posted
+days_since_posted = 15.0
+
+# Final feature vector (exact training order)
 features = [
-    location_city_te,         # 1
-    *type_encoded,            # 6
-    *province_encoded,        # 4
-    bedroom,                  # 1
-    bath,                     # 1
-    area_sqft,                # 1
-    log_area,                 # 1
-    log_area_price_ratio      # 1
+    *type_encoded,
+    bath,
+    bedroom,
+    area_sqft,
+    days_since_posted,
+    city_te,
+    location_te,
+    *province_encoded,
+    log_price_per_sqft,
+    log_area_price_ratio
 ]
 
-# Show for debugging
-st.write("✅ Feature count being passed:", len(features))
-st.code(f"{features}")
+# Debug info
+st.write("✅ Feature count:", len(features))
+st.write("📐 Expected by scaler:", scaler.n_features_in_)
 
 # ----------------------------
 # Predict
@@ -93,6 +100,6 @@ if st.button("🔍 Predict Price"):
     pred_log_price = model.predict(X_input)[0]
     pred_price = np.expm1(pred_log_price)
 
-    st.metric("🏷 Estimated House Price (PKR Millions)", f"{pred_price:.2f} M")
-    st.caption("🔎 Predicted using XGBoost model trained on log-transformed prices")
-    st.write(f"📉 Log Price Estimate: `{pred_log_price:.4f}`")
+    st.metric("Estimated House Price (PKR in Millions)", f"{pred_price:.2f} M")
+    st.caption("🔎 Model trained on log-transformed target using XGBoost")
+    st.write(f"Log price predicted: {pred_log_price:.4f}")
