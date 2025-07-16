@@ -10,14 +10,21 @@ model = joblib.load("xgb_model_cleaned.pkl")
 df = pd.read_csv("df_fe.csv")
 
 # --------------------------------------------
-# 2. Setup Mappings
+# 2. Recover Readable Mappings (Assumes Raw Names Exist)
 # --------------------------------------------
-city_te_values = df["location_city_te"].drop_duplicates().sort_values()
-city_te_map = {v: v for v in city_te_values}
 
-location_te_values = df["location_te"].drop_duplicates().sort_values()
-location_te_map = {v: v for v in location_te_values}
+# If you have raw names stored in 'location_city' and 'location' columns:
+if 'location_city' in df.columns and 'location' in df.columns:
+    city_map_df = df[['location_city', 'location_city_te']].drop_duplicates()
+    city_te_map = dict(zip(city_map_df['location_city'], city_map_df['location_city_te']))
 
+    location_map_df = df[['location', 'location_te', 'location_city_te']].drop_duplicates()
+
+else:
+    st.error("❌ Raw city and society names ('location_city' and 'location') not found in df_fe.csv.")
+    st.stop()
+
+# Province mapping from encoded city
 province_cols = [col for col in df.columns if col.startswith("location_province_")]
 city_to_province = (
     df.drop_duplicates("location_city_te")
@@ -29,18 +36,24 @@ city_to_province = (
 )
 
 # --------------------------------------------
-# 3. UI Inputs
+# 3. Streamlit Interface
 # --------------------------------------------
 st.title("🏠 Pakistan Real Estate Price Predictor")
 
-city_te = st.selectbox("Select City (Encoded)", sorted(city_te_map.keys()))
-related_societies = df[df["location_city_te"] == city_te]["location_te"].drop_duplicates().sort_values()
-loc_te = st.selectbox("Select Society (Encoded)", related_societies)
+# Select readable city name
+selected_city_name = st.selectbox("Select City", sorted(city_te_map.keys()))
+city_te = city_te_map[selected_city_name]
 
+# Filter related societies
+related_societies = location_map_df[location_map_df["location_city_te"] == city_te]
+society_te_map = dict(zip(related_societies["location"], related_societies["location_te"]))
+selected_society_name = st.selectbox("Select Society", sorted(society_te_map.keys()))
+loc_te = society_te_map[selected_society_name]
+
+# Property details
 prop_type = st.selectbox("Property Type", ["House", "Flat", "Shop", "Residential Plot"])
-
-bed = st.number_input("Bedrooms", min_value=1, max_value=10, value=3, step=1)
-bath = st.number_input("Bathrooms", min_value=1, max_value=10, value=2, step=1)
+bed = st.number_input("Bedrooms", min_value=1, max_value=10, value=3)
+bath = st.number_input("Bathrooms", min_value=1, max_value=10, value=2)
 area = st.number_input("Area (sqft)", min_value=100, max_value=100000, value=1200, step=50)
 
 # --------------------------------------------
@@ -55,7 +68,7 @@ def build_features(bath, bed, area, loc_te, city_te, province, prop_type):
         "bath": bath,
         "bedroom_imputed": bed,
         "area_sqft": area,
-        "days_since_posted": 30,  # assumed
+        "days_since_posted": 30,
         "location_city_te": city_te,
         "location_te": loc_te,
         "location_province_ Punjab": int(province == "Punjab"),
@@ -67,7 +80,7 @@ def build_features(bath, bed, area, loc_te, city_te, province, prop_type):
     }
 
 # --------------------------------------------
-# 5. Predict Button
+# 5. Prediction
 # --------------------------------------------
 if st.button("Predict Price"):
     try:
@@ -83,6 +96,6 @@ if st.button("Predict Price"):
         pred_price = round(np.exp(pred_log), 2)
 
         st.success(f"💰 Predicted Price: {pred_price} Million PKR")
-        st.info(f"🏠 {prop_type} in society (encoded): {loc_te}, city (encoded): {city_te}, province: {province}")
+        st.info(f"🏙️ {selected_city_name} → {selected_society_name} | {prop_type} | 🛏️ {bed}, 🛁 {bath}, 📐 {area} sqft")
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"❌ Error during prediction: {e}")
