@@ -4,7 +4,7 @@ import numpy as np
 import joblib
 
 # --------------------------------------------
-# 1. Load model and enriched dataset
+# 1. Load model and data
 # --------------------------------------------
 @st.cache_resource
 def load_model():
@@ -14,10 +14,8 @@ def load_model():
 def load_data():
     df = pd.read_csv("df_fe_with_names.csv")
 
-    # Add type column (from one-hot)
+    # Add 'type' column from one-hot encoding
     df["type"] = df[["type_House", "type_Flat", "type_Shop", "type_Residential Plot"]].idxmax(axis=1).str.replace("type_", "")
-    
-    # Estimate price per sqft
     df["price_per_sqft"] = df["price_million"] * 1e6 / df["area_sqft"]
     return df
 
@@ -25,7 +23,7 @@ model = load_model()
 df = load_data()
 
 # --------------------------------------------
-# 2. Validate necessary columns
+# 2. Check for necessary columns
 # --------------------------------------------
 required = {"location_city", "location", "location_city_te", "location_te"}
 if not required.issubset(df.columns):
@@ -33,7 +31,7 @@ if not required.issubset(df.columns):
     st.stop()
 
 # --------------------------------------------
-# 3. Mappings for city and society
+# 3. Mappings
 # --------------------------------------------
 city_te_map = dict(zip(df["location_city"], df["location_city_te"]))
 
@@ -52,33 +50,32 @@ city_to_province = (
 # --------------------------------------------
 st.set_page_config("🏠 Real Estate Predictor", layout="centered")
 st.title("🏠 Pakistan Real Estate Price Predictor")
-st.markdown("Use this tool to predict property prices based on city, society, type, area, beds, and baths.")
+st.markdown("Enter property details to predict estimated price:")
 
-# --- City selection
+# --- Select City
 selected_city = st.selectbox("📍 Select City", sorted(df["location_city"].unique()))
 city_te = city_te_map[selected_city]
 
-# --- Filtered societies
+# --- Filter societies by city
 societies_df = df[df["location_city"] == selected_city][["location", "location_te"]].drop_duplicates()
 society_te_map = dict(zip(societies_df["location"], societies_df["location_te"]))
 
 selected_society = st.selectbox("🏘️ Select Society", sorted(society_te_map.keys()))
 loc_te = society_te_map[selected_society]
 
-# --- Property Info
+# --- Property details
 prop_type = st.selectbox("🏗️ Property Type", ["House", "Flat", "Shop", "Residential Plot"])
 bedrooms = st.number_input("🛏️ Bedrooms", min_value=0, max_value=10, value=3)
 bathrooms = st.number_input("🛁 Bathrooms", min_value=0, max_value=10, value=2)
 area = st.number_input("📐 Area (sqft)", min_value=100, max_value=100000, value=1200, step=50)
 
 # --------------------------------------------
-# 5. Feature Builder with price/sqft lookup
+# 5. Feature Builder (with price/sqft lookup)
 # --------------------------------------------
 def build_features(bath, bed, area, loc_te, city_te, province, prop_type):
-    # Estimate price per sqft from df (filtered by city and type)
     price_df = df[(df["location_city_te"] == city_te) & (df["type"] == prop_type)]
     if price_df.shape[0] < 5:
-        price_df = df[df["type"] == prop_type]  # fallback to all data
+        price_df = df[df["type"] == prop_type]
     est_price_per_sqft = price_df["price_per_sqft"].median()
     est_price_per_sqft = max(est_price_per_sqft, 5000)
 
@@ -105,27 +102,35 @@ def build_features(bath, bed, area, loc_te, city_te, province, prop_type):
 # 6. Prediction
 # --------------------------------------------
 if st.button("💰 Predict Price"):
-    try:
-        province = city_to_province.get(city_te, "Punjab")
+    province = city_to_province.get(city_te, "Punjab")
 
-        features = build_features(
-            bath=bathrooms,
-            bed=bedrooms,
-            area=area,
-            loc_te=loc_te,
-            city_te=city_te,
-            province=province,
-            prop_type=prop_type
-        )
+    features = build_features(
+        bath=bathrooms,
+        bed=bedrooms,
+        area=area,
+        loc_te=loc_te,
+        city_te=city_te,
+        province=province,
+        prop_type=prop_type
+    )
 
-        input_df = pd.DataFrame([features])
-        input_df = input_df[model.get_booster().feature_names]
+    # Align features with model
+    input_df = pd.DataFrame([features])
+    expected_features = model.get_booster().feature_names
 
-        pred_log = model.predict(input_df)[0]
-        pred_price = round(np.exp(pred_log), 2)
+    # Debug: check feature match
+    missing = set(expected_features) - set(input_df.columns)
+    extra = set(input_df.columns) - set(expected_features)
+    if missing:
+        st.error(f"❌ Missing features in input: {missing}")
+        st.stop()
+    if extra:
+        st.warning(f"⚠️ Extra features in input: {extra}")
 
-        st.success(f"💰 Estimated Price: {pred_price} Million PKR")
-        st.caption(f"🏠 {prop_type} in {selected_society}, {selected_city} | {area} sqft | {bedrooms} bed | {bathrooms} bath")
+    # Predict
+    input_df = input_df[expected_features]
+    pred_log = model.predict(input_df)[0]
+    pred_price = round(np.exp(pred_log), 2)
 
-    except Exception as e:
-        st.error(f"❌ Prediction failed: {e}")
+    st.success(f"💰 Estimated Price: {pred_price} Million PKR")
+    st.caption(f"📍 {prop_type} in {selected_society}, {selected_city} | {area} sqft | {bedrooms} bed | {bathrooms} bath")
