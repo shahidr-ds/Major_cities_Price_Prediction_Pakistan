@@ -4,28 +4,19 @@ import numpy as np
 import joblib
 
 # --------------------------------------------------
-# Load cleaned + encoded data to get mappings
+# Load only the necessary raw data
 # --------------------------------------------------
 @st.cache_data
 def load_data():
-    df_raw = pd.read_csv("Major_cities_data.csv")  # contains readable names
-    df_fe = pd.read_csv("df_fe.csv")               # encoded data used in training
-    return df_raw, df_fe
+    df_raw = pd.read_csv("Major_cities_data.csv")
+    return df_raw
 
-df_raw, df_fe = load_data()
+df_raw = load_data()
 
 # --------------------------------------------------
-# Generate readable mappings (for dropdowns)
+# Define province and type columns used in the model
 # --------------------------------------------------
-city_te_map = df_raw.drop_duplicates("location_city")[["location_city", "location_city_te"]].set_index("location_city")["location_city_te"].to_dict()
-location_te_map = df_raw.drop_duplicates("location")[["location", "location_te"]].set_index("location")["location_te"].to_dict()
-
-city_te_rev_map = {v: k for k, v in city_te_map.items()}
-location_te_rev_map = {v: k for k, v in location_te_map.items()}
-
-province_cols = [col for col in df_fe.columns if col.startswith("location_province_")]
-provinces = [col.replace("location_province_", "").strip() for col in province_cols]
-
+provinces = ["Punjab", "Sindh", "Islamabad Capital", "Khyber Pakhtunkhwa"]
 property_types = {
     "House": "type_House",
     "Flat": "type_Flat",
@@ -34,12 +25,18 @@ property_types = {
 }
 
 # --------------------------------------------------
-# Load trained model
+# Generate mappings from raw data
+# --------------------------------------------------
+city_te_map = df_raw.drop_duplicates("location_city")[["location_city", "location_city_te"]].set_index("location_city")["location_city_te"].to_dict()
+location_te_map = df_raw.drop_duplicates("location")[["location", "location_te"]].set_index("location")["location_te"].to_dict()
+
+# --------------------------------------------------
+# Load the trained model
 # --------------------------------------------------
 model = joblib.load("best_model.pkl")
 
 # --------------------------------------------------
-# Streamlit UI
+# Streamlit App UI
 # --------------------------------------------------
 st.title("🏠 Real Estate Price Prediction App (Pakistan)")
 
@@ -54,7 +51,7 @@ bath = st.number_input("Bathrooms", min_value=0, max_value=20, step=1)
 area_sqft = st.number_input("Area (sqft)", min_value=1)
 
 # --------------------------------------------------
-# Feature Engineering for Prediction
+# Prepare Input for Model
 # --------------------------------------------------
 def create_input_df():
     input_dict = {
@@ -65,11 +62,11 @@ def create_input_df():
         "area_sqft": area_sqft
     }
 
-    # Add encoded type columns
+    # One-hot encode property type
     for col in property_types.values():
         input_dict[col] = 1 if col == property_types[selected_type] else 0
 
-    # Add province dummies
+    # One-hot encode province
     for prov in provinces:
         col = f"location_province_ {prov}"
         input_dict[col] = 1 if prov == selected_province else 0
@@ -88,5 +85,5 @@ if st.button("Predict Price"):
 
         st.success(f"🏷️ **Estimated Price:** Rs {price_pred:,.0f}")
     except Exception as e:
-        st.error("⚠️ Prediction failed. Please check input values or model compatibility.")
+        st.error("⚠️ Prediction failed. Check model or input.")
         st.exception(e)
