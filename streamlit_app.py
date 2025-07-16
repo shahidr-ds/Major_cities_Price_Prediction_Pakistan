@@ -1,136 +1,91 @@
+# streamlit_app.py
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
 
-# --------------------------------------------
-# 1. Load model and data
-# --------------------------------------------
-@st.cache_resource
+# -----------------------------
+# Load Model and Data
+# -----------------------------
+@st.cache_data
 def load_model():
-    return joblib.load("xgb_model_cleaned.pkl")
+    return joblib.load("xgb_model_tuned.pkl")  # Make sure this is the right filename
 
 @st.cache_data
 def load_data():
-    df = pd.read_csv("df_fe_with_names.csv")
-
-    # Add 'type' column from one-hot encoding
-    df["type"] = df[["type_House", "type_Flat", "type_Shop", "type_Residential Plot"]].idxmax(axis=1).str.replace("type_", "")
-    df["price_per_sqft"] = df["price_million"] * 1e6 / df["area_sqft"]
+    df = pd.read_csv("Major_cities_data.csv")  # Make sure this is the latest cleaned version
     return df
 
 model = load_model()
 df = load_data()
 
-# --------------------------------------------
-# 2. Check for necessary columns
-# --------------------------------------------
-required = {"location_city", "location", "location_city_te", "location_te"}
-if not required.issubset(df.columns):
-    st.error("❌ Your CSV must include: location_city, location, location_city_te, location_te")
-    st.stop()
+# -----------------------------
+# Prepare Dropdown Options
+# -----------------------------
+city_options = sorted(df['location_city'].dropna().unique())
+society_map = df.groupby("location_city")["location"].unique().apply(sorted).to_dict()
+type_options = sorted(df["type"].dropna().unique())
 
-# --------------------------------------------
-# 3. Mappings
-# --------------------------------------------
-city_te_map = dict(zip(df["location_city"], df["location_city_te"]))
-
-province_cols = [col for col in df.columns if col.startswith("location_province_")]
-city_to_province = (
-    df.drop_duplicates("location_city_te")
-      .set_index("location_city_te")[province_cols]
-      .idxmax(axis=1)
-      .str.replace("location_province_ ", "", regex=False)
-      .str.strip()
-      .to_dict()
-)
-
-# --------------------------------------------
-# 4. UI
-# --------------------------------------------
-st.set_page_config("🏠 Real Estate Predictor", layout="centered")
+# -----------------------------
+# Streamlit UI
+# -----------------------------
 st.title("🏠 Pakistan Real Estate Price Predictor")
-st.markdown("Enter property details to predict estimated price:")
 
-# --- Select City
-selected_city = st.selectbox("📍 Select City", sorted(df["location_city"].unique()))
-city_te = city_te_map[selected_city]
+selected_city = st.selectbox("📍 Select City", city_options)
+selected_society = st.selectbox("🏘️ Select Society", society_map.get(selected_city, []))
+selected_type = st.selectbox("🏗️ Property Type", type_options)
 
-# --- Filter societies by city
-societies_df = df[df["location_city"] == selected_city][["location", "location_te"]].drop_duplicates()
-society_te_map = dict(zip(societies_df["location"], societies_df["location_te"]))
+bedroom = st.slider("🛏️ Bedrooms", 0, 10, 3)
+bathroom = st.slider("🛁 Bathrooms", 0, 10, 2)
+area_sqft = st.number_input("📐 Area (sqft)", min_value=50, value=1000)
 
-selected_society = st.selectbox("🏘️ Select Society", sorted(society_te_map.keys()))
-loc_te = society_te_map[selected_society]
+# -----------------------------
+# Predict Button
+# -----------------------------
+if st.button("🔮 Predict Price"):
 
-# --- Property details
-prop_type = st.selectbox("🏗️ Property Type", ["House", "Flat", "Shop", "Residential Plot"])
-bedrooms = st.number_input("🛏️ Bedrooms", min_value=0, max_value=10, value=3)
-bathrooms = st.number_input("🛁 Bathrooms", min_value=0, max_value=10, value=2)
-area = st.number_input("📐 Area (sqft)", min_value=100, max_value=100000, value=1200, step=50)
-
-# --------------------------------------------
-# 5. Feature Builder (with price/sqft lookup)
-# --------------------------------------------
-def build_features(bath, bed, area, loc_te, city_te, province, prop_type):
-    price_df = df[(df["location_city_te"] == city_te) & (df["type"] == prop_type)]
-    if price_df.shape[0] < 5:
-        price_df = df[df["type"] == prop_type]
-    est_price_per_sqft = price_df["price_per_sqft"].median()
-    est_price_per_sqft = max(est_price_per_sqft, 5000)
-
-    return {
-        "type_House": int(prop_type == "House"),
-        "type_Flat": int(prop_type == "Flat"),
-        "type_Shop": int(prop_type == "Shop"),
-        "type_Residential Plot": int(prop_type == "Residential Plot"),
-        "bath": bath,
-        "bedroom_imputed": bed,
-        "area_sqft": area,
-        "days_since_posted": 30,
-        "location_city_te": city_te,
-        "location_te": loc_te,
-        "location_province_ Punjab": int(province == "Punjab"),
-        "location_province_ Sindh": int(province == "Sindh"),
-        "location_province_ Khyber Pakhtunkhwa": int(province == "Khyber Pakhtunkhwa"),
-        "location_province_ Islamabad Capital": int(province == "Islamabad Capital"),
-        "log_price_per_sqft": np.log(est_price_per_sqft),
-        "log_area_price_ratio": np.log(area / est_price_per_sqft)
+    # Step 1: Basic input
+    input_data = {
+        'location_city': selected_city,
+        'location': selected_society,
+        'type': selected_type,
+        'bedroom_imputed': bedroom,
+        'bath': bathroom,
+        'area_sqft': area_sqft,
     }
 
-# --------------------------------------------
-# 6. Prediction
-# --------------------------------------------
-if st.button("💰 Predict Price"):
-    province = city_to_province.get(city_te, "Punjab")
+    df_input = pd.DataFrame([input_data])
 
-    features = build_features(
-        bath=bathrooms,
-        bed=bedrooms,
-        area=area,
-        loc_te=loc_te,
-        city_te=city_te,
-        province=province,
-        prop_type=prop_type
-    )
+    # Step 2: Feature engineering (only what's needed)
+    df_input['log_area'] = np.log1p(df_input['area_sqft'])
 
-    # Align features with model
-    input_df = pd.DataFrame([features])
-    expected_features = model.get_booster().feature_names
+    # Step 3: Encoding (simple version)
+    # One-hot for type
+    for t in ["House", "Flat", "Shop", "Residential Plot"]:
+        df_input[f"type_{t}"] = int(selected_type == t)
 
-    # Debug: check feature match
-    missing = set(expected_features) - set(input_df.columns)
-    extra = set(input_df.columns) - set(expected_features)
-    if missing:
-        st.error(f"❌ Missing features in input: {missing}")
-        st.stop()
-    if extra:
-        st.warning(f"⚠️ Extra features in input: {extra}")
+    # One-hot for province (optional – depends on your model)
+    province = df[df["location_city"] == selected_city]["location_province"].mode().iloc[0]
+    for p in ["Punjab", "Sindh", "Khyber Pakhtunkhwa", "Islamabad Capital"]:
+        df_input[f"location_province_ {p}"] = int(province == p)
 
-    # Predict
-    input_df = input_df[expected_features]
-    pred_log = model.predict(input_df)[0]
-    pred_price = round(np.exp(pred_log), 2)
+    # Target encode city and society
+    city_te_map = df.drop_duplicates("location_city")[["location_city", "location_city_te"]].set_index("location_city").to_dict()["location_city_te"]
+    society_te_map = df.drop_duplicates("location")[["location", "location_te"]].set_index("location").to_dict()["location_te"]
 
-    st.success(f"💰 Estimated Price: {pred_price} Million PKR")
-    st.caption(f"📍 {prop_type} in {selected_society}, {selected_city} | {area} sqft | {bedrooms} bed | {bathrooms} bath")
+    df_input["location_city_te"] = city_te_map.get(selected_city, 0)
+    df_input["location_te"] = society_te_map.get(selected_society, 0)
+
+    # Step 4: Add missing columns
+    for col in model.get_booster().feature_names:
+        if col not in df_input.columns:
+            df_input[col] = 0
+
+    df_input = df_input[model.get_booster().feature_names]  # Ensure correct order
+
+    # Step 5: Predict
+    pred_log_price = model.predict(df_input)[0]
+    pred_price = round(np.expm1(pred_log_price), 2)
+
+    st.success(f"💰 Estimated Price: {pred_price:,} Million PKR")
