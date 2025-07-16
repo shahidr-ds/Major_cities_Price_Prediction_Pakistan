@@ -6,29 +6,33 @@ import joblib
 # --------------------------------------------
 # 1. Load Model and Data
 # --------------------------------------------
-try:
-    model = joblib.load("xgb_model_cleaned.pkl")
-    df = pd.read_csv("df_fe.csv")
-except Exception as e:
-    st.error(f"❌ Failed to load model or data: {e}")
-    st.stop()
+@st.cache_resource
+def load_model():
+    return joblib.load("xgb_model_cleaned.pkl")
+
+@st.cache_data
+def load_data():
+    return pd.read_csv("df_fe.csv")
+
+model = load_model()
+df = load_data()
 
 # --------------------------------------------
-# 2. Check for Raw Names (Required for Display)
+# 2. Validate Columns
 # --------------------------------------------
 required_cols = {"location_city", "location", "location_city_te", "location_te"}
 if not required_cols.issubset(df.columns):
-    st.error("❌ df_fe.csv must include: location_city, location, location_city_te, and location_te.")
+    st.error("❌ `df_fe.csv` must include: location_city, location, location_city_te, and location_te.")
     st.stop()
 
 # --------------------------------------------
-# 3. Build Mappings
+# 3. Create Mappings
 # --------------------------------------------
-# City: readable → encoded
+# City → encoded
 city_map_df = df[["location_city", "location_city_te"]].drop_duplicates()
 city_te_map = dict(zip(city_map_df["location_city"], city_map_df["location_city_te"]))
 
-# Province from encoded city
+# Province mapping from encoded city
 province_cols = [col for col in df.columns if col.startswith("location_province_")]
 city_to_province = (
     df.drop_duplicates("location_city_te")
@@ -40,29 +44,27 @@ city_to_province = (
 )
 
 # --------------------------------------------
-# 4. Streamlit UI
+# 4. Streamlit App UI
 # --------------------------------------------
-st.set_page_config(page_title="Pakistan Real Estate Price Predictor", layout="centered")
+st.set_page_config("🏠 Pakistan Price Predictor", layout="centered")
 st.title("🏠 Pakistan Real Estate Price Predictor")
-st.write("Predict property prices in major cities of Pakistan using a trained XGBoost model.")
+st.markdown("Predict house/plot/shop prices in major Pakistani cities using machine learning.")
 
-# City dropdown
+# --- City Dropdown ---
 selected_city = st.selectbox("📍 Select City", sorted(city_te_map.keys()))
 city_te = city_te_map[selected_city]
 
-# Filter societies for selected city
-location_map_df = df[df["location_city_te"] == city_te][["location", "location_te"]].drop_duplicates()
-society_te_map = dict(zip(location_map_df["location"], location_map_df["location_te"]))
-
-# Society dropdown
+# --- Society Dropdown ---
+societies_df = df[df["location_city_te"] == city_te][["location", "location_te"]].drop_duplicates()
+society_te_map = dict(zip(societies_df["location"], societies_df["location_te"]))
 selected_society = st.selectbox("🏘️ Select Society", sorted(society_te_map.keys()))
 loc_te = society_te_map[selected_society]
 
-# Property details
-prop_type = st.selectbox("🏗️ Property Type", ["House", "Flat", "Shop", "Residential Plot"])
-bed = st.number_input("🛏️ Bedrooms", min_value=0, max_value=10, value=3)
-bath = st.number_input("🛁 Bathrooms", min_value=0, max_value=10, value=2)
-area = st.number_input("📐 Area (sqft)", min_value=100, max_value=100000, value=1200, step=50)
+# --- Property Details ---
+property_type = st.selectbox("🏗️ Property Type", ["House", "Flat", "Shop", "Residential Plot"])
+bedrooms = st.number_input("🛏️ Bedrooms", min_value=0, max_value=10, value=3)
+bathrooms = st.number_input("🛁 Bathrooms", min_value=0, max_value=10, value=2)
+area_sqft = st.number_input("📐 Area (sqft)", min_value=100, max_value=100000, value=1200, step=50)
 
 # --------------------------------------------
 # 5. Feature Builder
@@ -76,15 +78,15 @@ def build_features(bath, bed, area, loc_te, city_te, province, prop_type):
         "bath": bath,
         "bedroom_imputed": bed,
         "area_sqft": area,
-        "days_since_posted": 30,
+        "days_since_posted": 30,  # assumed average
         "location_city_te": city_te,
         "location_te": loc_te,
         "location_province_ Punjab": int(province == "Punjab"),
         "location_province_ Sindh": int(province == "Sindh"),
         "location_province_ Khyber Pakhtunkhwa": int(province == "Khyber Pakhtunkhwa"),
         "location_province_ Islamabad Capital": int(province == "Islamabad Capital"),
-        "log_price_per_sqft": np.log(1.0),
-        "log_area_price_ratio": np.log(1.0)
+        "log_price_per_sqft": np.log(1.0),  # placeholder
+        "log_area_price_ratio": np.log(1.0)  # placeholder
     }
 
 # --------------------------------------------
@@ -93,18 +95,25 @@ def build_features(bath, bed, area, loc_te, city_te, province, prop_type):
 if st.button("💰 Predict Price"):
     try:
         province = city_to_province.get(city_te, "Punjab")
-        input_features = build_features(bath, bed, area, loc_te, city_te, province, prop_type)
-        df_input = pd.DataFrame([input_features])
+        features = build_features(
+            bath=bathrooms,
+            bed=bedrooms,
+            area=area_sqft,
+            loc_te=loc_te,
+            city_te=city_te,
+            province=province,
+            prop_type=property_type
+        )
 
-        # Ensure columns match model input
-        expected_cols = model.get_booster().feature_names
-        df_input = df_input[expected_cols]
+        df_input = pd.DataFrame([features])
+        expected_features = model.get_booster().feature_names
+        df_input = df_input[expected_features]
 
-        pred_log_price = model.predict(df_input)[0]
-        pred_price = round(np.exp(pred_log_price), 2)
+        pred_log = model.predict(df_input)[0]
+        predicted_price = round(np.exp(pred_log), 2)
 
-        st.success(f"💰 Predicted Price: {pred_price} Million PKR")
-        st.caption(f"📊 Based on a {prop_type} in {selected_society}, {selected_city} — {area} sqft, {bed} bed, {bath} bath")
+        st.success(f"💰 Predicted Price: {predicted_price} Million PKR")
+        st.caption(f"{property_type} in {selected_society}, {selected_city} | {area_sqft} sqft | {bedrooms} bed, {bathrooms} bath")
 
     except Exception as e:
         st.error(f"❌ Prediction failed: {e}")
