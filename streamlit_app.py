@@ -1,92 +1,92 @@
-# streamlit_app.py
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
 
-# -----------------------------
-# Load Model and Data
-# -----------------------------
-@st.cache_data
-def load_model():
-    return joblib.load("xgb_model_tuned.pkl")
-
+# --------------------------------------------------
+# Load cleaned + encoded data to get mappings
+# --------------------------------------------------
 @st.cache_data
 def load_data():
-    return pd.read_csv("Major_cities_data.csv")
+    df_raw = pd.read_csv("Major_cities_data.csv")  # contains readable names
+    df_fe = pd.read_csv("df_fe.csv")               # encoded data used in training
+    return df_raw, df_fe
 
-model = load_model()
-df = load_data()
+df_raw, df_fe = load_data()
 
-# -----------------------------
-# Prepare Dropdown Options
-# -----------------------------
-city_options = sorted(df['location_city'].dropna().unique())
-society_map = df.groupby("location_city")["location"].unique().apply(sorted).to_dict()
+# --------------------------------------------------
+# Generate readable mappings (for dropdowns)
+# --------------------------------------------------
+city_te_map = df_raw.drop_duplicates("location_city")[["location_city", "location_city_te"]].set_index("location_city")["location_city_te"].to_dict()
+location_te_map = df_raw.drop_duplicates("location")[["location", "location_te"]].set_index("location")["location_te"].to_dict()
 
-# ✅ Allowed property types
-allowed_types = ["House", "Flat", "Shop", "Residential Plot"]
+city_te_rev_map = {v: k for k, v in city_te_map.items()}
+location_te_rev_map = {v: k for k, v in location_te_map.items()}
 
-# -----------------------------
+province_cols = [col for col in df_fe.columns if col.startswith("location_province_")]
+provinces = [col.replace("location_province_", "").strip() for col in province_cols]
+
+property_types = {
+    "House": "type_House",
+    "Flat": "type_Flat",
+    "Shop": "type_Shop",
+    "Residential Plot": "type_Residential Plot"
+}
+
+# --------------------------------------------------
+# Load trained model
+# --------------------------------------------------
+model = joblib.load("best_model.pkl")
+
+# --------------------------------------------------
 # Streamlit UI
-# -----------------------------
-st.title("🏠 Pakistan Real Estate Price Predictor")
+# --------------------------------------------------
+st.title("🏠 Real Estate Price Prediction App (Pakistan)")
 
-selected_city = st.selectbox("📍 Select City", city_options)
-selected_society = st.selectbox("🏘️ Select Society", society_map.get(selected_city, []))
-selected_type = st.selectbox("🏗️ Property Type", allowed_types)
+# --- User Inputs ---
+selected_city = st.selectbox("Select City", sorted(city_te_map.keys()))
+selected_location = st.selectbox("Select Location", sorted(location_te_map.keys()))
+selected_province = st.selectbox("Select Province", sorted(provinces))
+selected_type = st.selectbox("Select Property Type", list(property_types.keys()))
 
-bedroom = st.slider("🛏️ Bedrooms", 0, 10, 3)
-bathroom = st.slider("🛁 Bathrooms", 0, 10, 2)
-area_sqft = st.number_input("📐 Area (sqft)", min_value=50, value=1000)
+bedroom = st.number_input("Bedrooms", min_value=0, max_value=20, step=1)
+bath = st.number_input("Bathrooms", min_value=0, max_value=20, step=1)
+area_sqft = st.number_input("Area (sqft)", min_value=1)
 
-# -----------------------------
-# Predict Button
-# -----------------------------
-if st.button("🔮 Predict Price"):
-
-    # Step 1: Base input
-    input_data = {
-        'location_city': selected_city,
-        'location': selected_society,
-        'type': selected_type,
-        'bedroom_imputed': bedroom,
-        'bath': bathroom,
-        'area_sqft': area_sqft,
+# --------------------------------------------------
+# Feature Engineering for Prediction
+# --------------------------------------------------
+def create_input_df():
+    input_dict = {
+        "location_city_te": city_te_map[selected_city],
+        "location_te": location_te_map[selected_location],
+        "bedroom_imputed": bedroom,
+        "bath": bath,
+        "area_sqft": area_sqft
     }
 
-    df_input = pd.DataFrame([input_data])
+    # Add encoded type columns
+    for col in property_types.values():
+        input_dict[col] = 1 if col == property_types[selected_type] else 0
 
-    # Step 2: Feature engineering
-    df_input['log_area'] = np.log1p(df_input['area_sqft'])
+    # Add province dummies
+    for prov in provinces:
+        col = f"location_province_ {prov}"
+        input_dict[col] = 1 if prov == selected_province else 0
 
-    # Step 3: One-hot encoding for type
-    for t in allowed_types:
-        df_input[f"type_{t}"] = int(selected_type == t)
+    return pd.DataFrame([input_dict])
 
-    # Step 4: One-hot for province
-    province = df[df["location_city"] == selected_city]["location_province"].mode().iloc[0]
-    for p in ["Punjab", "Sindh", "Khyber Pakhtunkhwa", "Islamabad Capital"]:
-        df_input[f"location_province_ {p}"] = int(province == p)
+# --------------------------------------------------
+# Predict
+# --------------------------------------------------
+if st.button("Predict Price"):
+    input_df = create_input_df()
 
-    # Step 5: Target encoding for city and society
-    city_te_map = df.drop_duplicates("location_city")[["location_city", "location_city_te"]].set_index("location_city").to_dict()["location_city_te"]
-    society_te_map = df.drop_duplicates("location")[["location", "location_te"]].set_index("location").to_dict()["location_te"]
+    try:
+        log_price_pred = model.predict(input_df)[0]
+        price_pred = np.expm1(log_price_pred)  # Inverse of log1p
 
-    df_input["location_city_te"] = city_te_map.get(selected_city, 0)
-    df_input["location_te"] = society_te_map.get(selected_society, 0)
-
-    # Step 6: Fill any missing model columns
-    model_features = model.get_booster().feature_names
-    for col in model_features:
-        if col not in df_input.columns:
-            df_input[col] = 0
-
-    df_input = df_input[model_features]  # ensure column order
-
-    # Step 7: Predict
-    pred_log_price = model.predict(df_input)[0]
-    pred_price = round(np.expm1(pred_log_price), 2)
-
-    st.success(f"💰 Estimated Price: {pred_price:,} Million PKR")
+        st.success(f"🏷️ **Estimated Price:** Rs {price_pred:,.0f}")
+    except Exception as e:
+        st.error("⚠️ Prediction failed. Please check input values or model compatibility.")
+        st.exception(e)
