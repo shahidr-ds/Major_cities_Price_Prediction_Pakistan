@@ -1,137 +1,88 @@
 import streamlit as st
+import pandas as pd
 import numpy as np
 import joblib
 
-# ----------------------------
-# Load model and scaler
-# ----------------------------
-model = joblib.load("models/xgb_model.pkl")
-scaler = joblib.load("models/scaler.pkl")
+# --------------------------------------------
+# 1. Load Model and Data
+# --------------------------------------------
+model = joblib.load("xgb_model_cleaned.pkl")
+df = pd.read_csv("df_fe.csv")
 
-# ----------------------------
-# Set up Streamlit UI
-# ----------------------------
-st.set_page_config(page_title="🏡 House Price Prediction (PKR)", layout="centered")
-st.title("🏡 Major Cities House Price Predictor - Pakistan")
-st.markdown("Estimate log-transformed house prices using the XGBoost model trained on real data.")
+# --------------------------------------------
+# 2. Setup Mappings
+# --------------------------------------------
+city_te_values = df["location_city_te"].drop_duplicates().sort_values()
+city_te_map = {v: v for v in city_te_values}
 
-# ----------------------------
-# Sidebar - User Inputs
-# ----------------------------
-st.sidebar.header("📥 Enter Property Features")
+location_te_values = df["location_te"].drop_duplicates().sort_values()
+location_te_map = {v: v for v in location_te_values}
 
-# Grouped cities by province
-province_city_map = {
-    "Punjab": ["Lahore", "Rawalpindi", "Faisalabad", "Multan", "Sialkot"],
-    "Sindh": ["Karachi", "Hyderabad"],
-    "Khyber Pakhtunkhwa": ["Peshawar"],
-    "Islamabad Capital": ["Islamabad"]
-}
+province_cols = [col for col in df.columns if col.startswith("location_province_")]
+city_to_province = (
+    df.drop_duplicates("location_city_te")
+      .set_index("location_city_te")[province_cols]
+      .idxmax(axis=1)
+      .str.replace("location_province_ ", "", regex=False)
+      .str.strip()
+      .to_dict()
+)
 
-# Province and dynamic city dropdown
-province = st.sidebar.selectbox("Province", list(province_city_map.keys()))
-city = st.sidebar.selectbox("City", province_city_map[province])
+# --------------------------------------------
+# 3. UI Inputs
+# --------------------------------------------
+st.title("🏠 Pakistan Real Estate Price Predictor")
 
-# Location (Society) Dropdown and Encoding
-location_map = {
-    "Lahore": {"DHA Lahore": 52.4, "Bahria Town": 48.9, "Johar Town": 46.5},
-    "Karachi": {"DHA Karachi": 51.2, "Gulshan-e-Iqbal": 46.3},
-    "Islamabad": {"DHA Islamabad": 53.1, "G-13": 49.5},
-    "Rawalpindi": {"Bahria Town": 47.8},
-    "Peshawar": {"Hayatabad": 42.0},
-    "Faisalabad": {"Satiana Road": 40.5},
-    "Multan": {"Model Town": 39.0},
-    "Hyderabad": {"Qasimabad": 38.0},
-    "Sialkot": {"Cantt": 37.2}
-}
-location_options = list(location_map.get(city, {"Unknown": 40.0}).keys())
-selected_location = st.sidebar.selectbox("Location / Society", location_options)
-location_te = location_map.get(city, {}).get(selected_location, 40.0)
+city_te = st.selectbox("Select City (Encoded)", sorted(city_te_map.keys()))
+related_societies = df[df["location_city_te"] == city_te]["location_te"].drop_duplicates().sort_values()
+loc_te = st.selectbox("Select Society (Encoded)", related_societies)
 
-# Property Type
-property_type = st.sidebar.selectbox("Property Type", [
-    "House", "Flat", "Residential Plot", "Shop"
-])
+prop_type = st.selectbox("Property Type", ["House", "Flat", "Shop", "Residential Plot"])
 
-# Numeric Inputs
-bedroom = st.sidebar.slider("Bedrooms", 0, 10, 3)
-bath = st.sidebar.slider("Bathrooms", 0, 10, 2)
-area_sqft = st.sidebar.number_input("Area (sqft)", min_value=50.0, max_value=20000.0, value=1200.0)
+bed = st.number_input("Bedrooms", min_value=1, max_value=10, value=3, step=1)
+bath = st.number_input("Bathrooms", min_value=1, max_value=10, value=2, step=1)
+area = st.number_input("Area (sqft)", min_value=100, max_value=100000, value=1200, step=50)
 
-# ----------------------------
-# Feature Engineering (15 total)
-# ----------------------------
-# Property type dummies (4 used)
-property_types = ["House", "Flat", "Shop", "Residential Plot"]
-type_encoded = [1.0 if property_type == t else 0.0 for t in property_types]
+# --------------------------------------------
+# 4. Feature Builder
+# --------------------------------------------
+def build_features(bath, bed, area, loc_te, city_te, province, prop_type):
+    return {
+        "type_House": int(prop_type == "House"),
+        "type_Flat": int(prop_type == "Flat"),
+        "type_Shop": int(prop_type == "Shop"),
+        "type_Residential Plot": int(prop_type == "Residential Plot"),
+        "bath": bath,
+        "bedroom_imputed": bed,
+        "area_sqft": area,
+        "days_since_posted": 30,  # assumed
+        "location_city_te": city_te,
+        "location_te": loc_te,
+        "location_province_ Punjab": int(province == "Punjab"),
+        "location_province_ Sindh": int(province == "Sindh"),
+        "location_province_ Khyber Pakhtunkhwa": int(province == "Khyber Pakhtunkhwa"),
+        "location_province_ Islamabad Capital": int(province == "Islamabad Capital"),
+        "log_price_per_sqft": np.log(1.0),
+        "log_area_price_ratio": np.log(1.0)
+    }
 
-# Province dummies (Punjab, Sindh, KP)
-province_dummies = ["Punjab", "Sindh", "Khyber Pakhtunkhwa"]
-province_encoded = [1.0 if province == p else 0.0 for p in province_dummies]
-
-# Target Encodings
-city_te_map = {
-    "Lahore": 25.1, "Karachi": 24.5, "Islamabad": 26.0, "Rawalpindi": 23.7,
-    "Peshawar": 22.3, "Faisalabad": 21.9, "Multan": 21.4, "Hyderabad": 20.2,
-    "Sialkot": 20.0
-}
-city_te = city_te_map.get(city, 21.0)
-
-# Log price per sqft and ratio
-price_per_sqft = area_sqft / (bedroom + bath + 1)
-log_price_per_sqft = np.log1p(price_per_sqft)
-log_area_price_ratio = np.log1p(area_sqft / (bedroom + bath + 1))
-
-# Mock days since posted
-days_since_posted = 15.0
-
-# Final feature vector (exact training order)
-bedroom_imputed = bedroom
-features = [
-    *type_encoded,
-    bath,
-    bedroom_imputed,
-    area_sqft,
-    days_since_posted,
-    city_te,
-    location_te,
-    *province_encoded,
-    log_price_per_sqft,
-    log_area_price_ratio
-]
-
-# Debug info
-st.write("✅ Feature count:", len(features))
-st.write("📐 Expected by scaler:", scaler.n_features_in_)
-st.write("🔍 Feature Values:")
-st.json({ 
-    "type_encoded": type_encoded,
-    "bath": bath,
-    "bedroom": bedroom,
-    "area_sqft": area_sqft,
-    "days_since_posted": days_since_posted,
-    "city_te": city_te,
-    "location_te": location_te,
-    "province_encoded": province_encoded,
-    "log_price_per_sqft": log_price_per_sqft,
-    "log_area_price_ratio": log_area_price_ratio
-})
-
-# ----------------------------
-# Predict
-# ----------------------------
-if st.button("🔍 Predict Price"):
-    st.markdown("---")
-    st.subheader("📊 Prediction Result")
-
+# --------------------------------------------
+# 5. Predict Button
+# --------------------------------------------
+if st.button("Predict Price"):
     try:
-        X_input = scaler.transform([features])
-        pred_log_price = model.predict(X_input)[0]
-        pred_price = np.expm1(pred_log_price)
+        province = city_to_province.get(city_te, "Punjab")
+        features = build_features(bath, bed, area, loc_te, city_te, province, prop_type)
+        df_input = pd.DataFrame([features])
 
-        st.metric("Estimated House Price (PKR in Millions)", f"{pred_price:.2f} M")
-        st.caption("🔎 Model trained on log-transformed target using XGBoost")
-        st.write(f"Log price predicted: {pred_log_price:.4f}")
+        # Align with model input
+        expected = model.get_booster().feature_names
+        df_input = df_input[expected]
 
-    except ValueError as e:
-        st.error(f"🚫 Prediction failed: {e}")
+        pred_log = model.predict(df_input)[0]
+        pred_price = round(np.exp(pred_log), 2)
+
+        st.success(f"💰 Predicted Price: {pred_price} Million PKR")
+        st.info(f"🏠 {prop_type} in society (encoded): {loc_te}, city (encoded): {city_te}, province: {province}")
+    except Exception as e:
+        st.error(f"Error: {e}")
