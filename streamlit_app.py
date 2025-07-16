@@ -12,7 +12,7 @@ def load_model():
 
 @st.cache_data
 def load_data():
-    return pd.read_csv("df_fe.csv")
+    return pd.read_csv("df_fe_with_names.csv")
 
 model = load_model()
 df = load_data()
