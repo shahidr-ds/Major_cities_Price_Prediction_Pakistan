@@ -1,51 +1,89 @@
 import streamlit as st
+import numpy as np
 import pandas as pd
 import joblib
-import numpy as np
 
-# Load model and feature list
-model = joblib.load("xgb_model.pkl")
-model_features = joblib.load("model_features.pkl")  # This should be the feature list used during training
+# Load model and features
+model = joblib.load("xgb_model_tuned.pkl")
+selected_features = joblib.load("model_features_tuned.pkl")
 
-# Title
-st.title("🏡 Major Cities House Price Prediction - Pakistan")
-
-# User Inputs
-st.header("Enter Property Details")
-
-# Dropdowns and inputs
-city = st.selectbox("City", ['Lahore', 'Karachi', 'Islamabad', 'Peshawar'])
-province = st.selectbox("Province", ['Punjab', 'Sindh', 'Khyber Pakhtunkhwa', 'Islamabad Capital'])
-property_type = st.selectbox("Property Type", ['House', 'Flat', 'Shop', 'Commercial Plot', 'Building'])
-bedrooms = st.number_input("Bedrooms", min_value=0, max_value=20, value=3)
-bathrooms = st.number_input("Bathrooms", min_value=1, max_value=20, value=2)
-area = st.number_input("Area (sqft)", min_value=100, max_value=20000, value=1200)
-
-# Feature engineering (manual encoding)
-input_dict = {
-    'bedroom_imputed': bedrooms,
-    'bath': bathrooms,
-    'area_sqft': area,
-    'log_area': np.log1p(area),  # log(area) for model
-    'location_city_te': hash(city) % 1000,  # Placeholder for city target encoding
-    'location_te': hash(f"{city}_{province}") % 1000,  # Placeholder for combined encoding
+# --- UI Dropdown Friendly Names ---
+city_map = {
+    'Karachi': 'location_city_te', 
+    'Lahore': 'location_city_te',
+    'Islamabad': 'location_city_te',
+    'Rawalpindi': 'location_city_te',
+    'Peshawar': 'location_city_te',
+    'Multan': 'location_city_te'
 }
 
-# One-hot encoding
-for pt in ['type_Building', 'type_Commercial Plot', 'type_Flat', 'type_House', 'type_Shop']:
-    input_dict[pt] = 1 if pt.split('_')[1] == property_type else 0
+province_map = {
+    'Punjab': 'location_province_ Punjab',
+    'Sindh': 'location_province_ Sindh',
+    'Khyber Pakhtunkhwa': 'location_province_ Khyber Pakhtunkhwa',
+    'Islamabad Capital': 'location_province_ Islamabad Capital'
+}
 
-for prov in ['location_province_ Punjab', 'location_province_ Sindh', 'location_province_ Khyber Pakhtunkhwa', 'location_province_ Islamabad Capital']:
-    input_dict[prov] = 1 if prov.split('_ ')[1] == province else 0
+type_map = {
+    'House': 'type_House',
+    'Flat': 'type_Flat',
+    'Shop': 'type_Shop',
+    'Commercial Plot': 'type_Commercial Plot',
+    'Residential Plot': 'type_Residential Plot',
+    'Building': 'type_Building'
+}
 
-# Convert to DataFrame
-input_df = pd.DataFrame([input_dict])
+st.set_page_config(page_title="Real Estate Price Predictor", layout="centered")
+st.title("🏠 Major Cities Real Estate Price Prediction (Pakistan)")
 
-# Reindex to match training feature order
-input_df = input_df.reindex(columns=model_features, fill_value=0)
+# User Inputs
+city = st.selectbox("Select City", list(city_map.keys()))
+province = st.selectbox("Select Province", list(province_map.keys()))
+property_type = st.selectbox("Select Property Type", list(type_map.keys()))
+bedrooms = st.number_input("Bedrooms", min_value=0, step=1, value=3)
+bathrooms = st.number_input("Bathrooms", min_value=0, step=1, value=2)
+area_sqft = st.number_input("Area (in Square Feet)", min_value=0.0, step=50.0, value=1000.0)
 
-# Predict
+# Preprocessing single input row
+def create_input_df():
+    input_dict = {feature: 0 for feature in selected_features}
+    
+    # Encoded features
+    input_dict[type_map[property_type]] = 1
+    input_dict[province_map[province]] = 1
+    
+    # Numerical features
+    input_dict['bedroom_imputed'] = bedrooms
+    input_dict['bath'] = bathrooms
+    input_dict['area_sqft'] = area_sqft
+    input_dict['log_area'] = np.log1p(area_sqft)
+
+    # Handle TE features if present
+    if 'location_city_te' in selected_features:
+        # Assume dummy average encoding for city and full location
+        city_te = {
+            'Karachi': 0.72,
+            'Lahore': 0.69,
+            'Islamabad': 0.85,
+            'Rawalpindi': 0.66,
+            'Peshawar': 0.55,
+            'Multan': 0.52
+        }
+        input_dict['location_city_te'] = city_te.get(city, 0.60)
+    
+    if 'location_te' in selected_features:
+        # If location_te was based on city + area, fallback to city only
+        input_dict['location_te'] = city_te.get(city, 0.60)
+
+    return pd.DataFrame([input_dict])
+
+# Prediction
 if st.button("Predict Price"):
-    log_price = model.predict(input_df)[0]
-    price = np.expm1(log_price)
-    st.success(f"💰 Estimated Price: PKR {price:,.0f}")
+    input_df = create_input_df()
+    log_price_pred = model.predict(input_df)[0]
+    price_million = np.expm1(log_price_pred)
+
+    st.success(f"💰 Estimated Price: **{price_million:.2f} Million PKR**")
+
+    with st.expander("🔍 Model Input Summary"):
+        st.dataframe(input_df)
