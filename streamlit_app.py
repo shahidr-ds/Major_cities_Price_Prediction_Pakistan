@@ -1,80 +1,51 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import joblib
-from sklearn.preprocessing import LabelEncoder
+import numpy as np
 
-@st.cache_data
-def load_data():
-    df = pd.read_csv("Major_cities_data.csv")
-    # Create encoders for location_city and location
-    df["location_city_te"] = LabelEncoder().fit_transform(df["location_city"])
-    df["location_te"] = LabelEncoder().fit_transform(df["location"])
-    return df
+# Load model and feature list
+model = joblib.load("xgb_model.pkl")
+model_features = joblib.load("model_features.pkl")  # This should be the feature list used during training
 
-df_raw = load_data()
+# Title
+st.title("🏡 Major Cities House Price Prediction - Pakistan")
 
-# Province and property types
-provinces = ["Punjab", "Islamabad Capital", "Khyber Pakhtunkhwa"]
-property_types = {
-    "Building": "type_Building",
-    "Commercial Plot": "type_Commercial Plot",
-    "Flat": "type_Flat",
-    "House": "type_House",
-    "Shop": "type_Shop"
+# User Inputs
+st.header("Enter Property Details")
+
+# Dropdowns and inputs
+city = st.selectbox("City", ['Lahore', 'Karachi', 'Islamabad', 'Peshawar'])
+province = st.selectbox("Province", ['Punjab', 'Sindh', 'Khyber Pakhtunkhwa', 'Islamabad Capital'])
+property_type = st.selectbox("Property Type", ['House', 'Flat', 'Shop', 'Commercial Plot', 'Building'])
+bedrooms = st.number_input("Bedrooms", min_value=0, max_value=20, value=3)
+bathrooms = st.number_input("Bathrooms", min_value=1, max_value=20, value=2)
+area = st.number_input("Area (sqft)", min_value=100, max_value=20000, value=1200)
+
+# Feature engineering (manual encoding)
+input_dict = {
+    'bedroom_imputed': bedrooms,
+    'bath': bathrooms,
+    'area_sqft': area,
+    'log_area': np.log1p(area),  # log(area) for model
+    'location_city_te': hash(city) % 1000,  # Placeholder for city target encoding
+    'location_te': hash(f"{city}_{province}") % 1000,  # Placeholder for combined encoding
 }
 
-# Generate mappings
-city_te_map = df_raw.drop_duplicates("location_city")[["location_city", "location_city_te"]].set_index("location_city")["location_city_te"].to_dict()
-location_te_map = df_raw.drop_duplicates("location")[["location", "location_te"]].set_index("location")["location_te"].to_dict()
+# One-hot encoding
+for pt in ['type_Building', 'type_Commercial Plot', 'type_Flat', 'type_House', 'type_Shop']:
+    input_dict[pt] = 1 if pt.split('_')[1] == property_type else 0
 
-# Load model
-model = joblib.load("best_model.pkl")
+for prov in ['location_province_ Punjab', 'location_province_ Sindh', 'location_province_ Khyber Pakhtunkhwa', 'location_province_ Islamabad Capital']:
+    input_dict[prov] = 1 if prov.split('_ ')[1] == province else 0
 
-# Streamlit UI
-st.title("🏠 Real Estate Price Prediction")
+# Convert to DataFrame
+input_df = pd.DataFrame([input_dict])
 
-selected_city = st.selectbox("City", sorted(city_te_map.keys()))
-selected_location = st.selectbox("Location", sorted(location_te_map.keys()))
-selected_province = st.selectbox("Province", provinces)
-selected_type = st.selectbox("Property Type", list(property_types.keys()))
-
-bedroom = st.number_input("Bedrooms", min_value=0, max_value=20, step=1)
-bath = st.number_input("Bathrooms", min_value=0, max_value=20, step=1)
-area_sqft = st.number_input("Area (sqft)", min_value=1)
-
-# Prepare input
-def prepare_input():
-    log_area = np.log1p(area_sqft)
-
-    input_dict = {
-        "location_city_te": city_te_map[selected_city],
-        "location_te": location_te_map[selected_location],
-        "bedroom_imputed": bedroom,
-        "bath": bath,
-        "area_sqft": area_sqft,
-        "log_area": log_area,
-    }
-
-    # One-hot property type
-    for col in property_types.values():
-        input_dict[col] = 1 if col == property_types[selected_type] else 0
-
-    # One-hot province
-    for prov in provinces:
-        col = f"location_province_ {prov}"
-        input_dict[col] = 1 if selected_province == prov else 0
-
-    return pd.DataFrame([input_dict])
+# Reindex to match training feature order
+input_df = input_df.reindex(columns=model_features, fill_value=0)
 
 # Predict
 if st.button("Predict Price"):
-    try:
-        input_df = prepare_input()
-        log_price = model.predict(input_df)[0]
-        price = np.expm1(log_price)
-
-        st.success(f"🏷️ **Estimated Price:** Rs {price:,.0f}")
-    except Exception as e:
-        st.error("⚠️ Prediction failed.")
-        st.exception(e)
+    log_price = model.predict(input_df)[0]
+    price = np.expm1(log_price)
+    st.success(f"💰 Estimated Price: PKR {price:,.0f}")
